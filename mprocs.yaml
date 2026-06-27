@@ -1,0 +1,5 @@
+procs:
+  dashboard-ui:
+    shell: "cd dashboard/frontend && npm run dev"
+  dashboard-api:
+    shell: "cd dashboard/api && uv run uvicorn main:app --reload --port 8000"

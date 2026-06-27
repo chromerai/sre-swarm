@@ -1,0 +1,25 @@
+[project]
+name = "shared"
+version = "0.1.0"
+description = "This is the version to be shared amongst all of the code"
+readme = "README.md"
+authors = [
+    { name = "chromerai", email = "kaustubhmishra983@gamil.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.5",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.138.1",
+    "httpx>=0.28.1",
+    "nats-py>=2.15.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "python-json-logger>=4.1.0",
+    "sqlalchemy>=2.0.51",
+    "uvicorn>=0.49.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
