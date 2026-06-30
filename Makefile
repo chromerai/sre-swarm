@@ -10,7 +10,7 @@ COMPOSE_CMD := docker compose \
 	-p $(COMPOSE_PROJECT_NAME) \
 	-f $(COMPOSE_FILE)
 
-.PHONY: dev up down clean status logs prune test
+.PHONY: dev up down clean status logs prune test init
 
 dev: up
 		@echo "✅ Postgres and NATS ready. Run 'make status' to verify."
@@ -47,3 +47,7 @@ logs:
 
 prune:
 	@docker system prune -a --volumes
+
+init:
+	python3 -m scripts.init_nats
+	
