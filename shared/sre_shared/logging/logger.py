@@ -8,7 +8,7 @@ import logging
 import sys
 import structlog
 
-from shared.config.settings import Settings
+from sre_shared.config.settings import Settings
 
 def configure_logging(settings: Settings | None = None) -> None:
     settings = settings or Settings()

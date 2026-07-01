@@ -9,9 +9,9 @@ import nats
 from nats.js.errors import NotFoundError
 from nats.js import JetStreamContext
 
-from shared.messaging.streams import STREAM_CONFIGS
-from shared.config.settings import Settings
-from shared.logging.logger import configure_logging
+from sre_shared.messaging.streams import STREAM_CONFIGS
+from sre_shared.config.settings import Settings
+from sre_shared.logging.logger import configure_logging
 
 logger = structlog.get_logger(__name__)
 
