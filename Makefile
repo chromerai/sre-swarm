@@ -49,5 +49,5 @@ prune:
 	@docker system prune -a --volumes
 
 init:
-	python3 -m scripts.init_nats
+	python3 scripts/init_nats.py
 	

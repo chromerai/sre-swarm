@@ -4,16 +4,15 @@ Run via: make init ( after make dev, before starting any agent)
 """
 
 import asyncio
-import structlog
 import nats
 from nats.js.errors import NotFoundError
 from nats.js import JetStreamContext
 
 from sre_shared.messaging.streams import STREAM_CONFIGS
 from sre_shared.config.settings import Settings
-from sre_shared.logging.logger import configure_logging
+from sre_shared.logging.logger import configure_logging, get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 async def init_streams(js: JetStreamContext) -> None:
     """
