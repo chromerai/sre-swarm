@@ -18,7 +18,8 @@ OPS_STREAM = StreamConfig(
     name="OPS",
     subjects=[
         "sre.diagnosis.*", "sre.remediation.*",
-        "sre.verification.*", "sre.approval.*", "sre.execution.*",
+        "sre.verification.*", "sre.approval.*", 
+        "sre.execution.*", "sre.safety.*"
     ],
     max_age=NINETY_DAYS,
     retention=RetentionPolicy.LIMITS,
