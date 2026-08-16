@@ -13,22 +13,29 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",
-        extra="ignore")
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        )
 
-    environment: str ="development"
+    #environment
+    environment: str = "development"
+    log_level: str = "INFO"
 
-    #core infra
+    #postgres
     postgres_url: str = "postgresql+asyncpg://sre_swarm:simplepassword@localhost:5432/sre_agent"
     postgres_pool_size: int = 10
     postgres_max_overflow: int = 20
 
+    #nats
     nats_url: str = "nats://localhost:4222"
     nats_max_reconnect_attempts: int = 10
     nats_reconnect_time_wait: float =  2.00
     nats_ack_wait_seconds: int = 30
     nats_max_deliver: int = 5
-
-    log_level: str = "INFO"
+    agent_heartbeat_interval_seconds: int = 30
+    agent_heartbeat_timeout_seconds: int = 90
+    
 
 
 @lru_cache(maxsize=1)
