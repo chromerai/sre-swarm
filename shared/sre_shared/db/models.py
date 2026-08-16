@@ -331,18 +331,3 @@ class RunbookStats(Base):
     last_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
-
-class AgentHeartbeat(Base):
-
-    __tablename__ = "agent_heartbeats"
- 
-    agent_instance_id: Mapped[str] = mapped_column(String, primary_key=True)
-    agent_type: Mapped[str] = mapped_column(String, nullable=False)
- 
-    last_seen: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
-    )
-    status: Mapped[str] = mapped_column(
-        String, nullable=False, default="healthy",
-        comment="healthy | degraded | dead",
-    )

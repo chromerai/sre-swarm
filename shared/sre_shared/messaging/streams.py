@@ -46,7 +46,7 @@ AGENTS_STREAM = StreamConfig(
     num_replicas=1,
 )
 
-
+AGENT_HEARTBEAT_BUCKET = "agent_heartbeats"
 
 STREAM_CONFIGS = [
     INCIDENTS_STREAM,

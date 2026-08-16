@@ -1,20 +1,20 @@
 """
 Unit test suite for NatsClient (pytest-mock edition).
 
-=============================================================================
+========================================================================
 HOW TO RUN
-=============================================================================
+========================================================================
     pytest test_nats_client.py -v            # run everything
     pytest test_nats_client.py -k publish    # run only tests with "publish" in the name
 
 Ensure your pyproject.toml or pytest.ini has:
     [tool.pytest.ini_options]
     asyncio_mode = "auto"
-=============================================================================
+========================================================================
 
-=============================================================================
+========================================================================
 TEST SUITE OVERVIEW
-=============================================================================
+========================================================================
 
 TestInit
     Verifies that a fresh NatsClient starts in a disconnected, uninitialized
@@ -122,6 +122,8 @@ def mock_js(mocker: MockerFixture):
     js = mocker.MagicMock()
     js.publish = mocker.AsyncMock()
     js.subscribe = mocker.AsyncMock()
+    js.create_key_value = mocker.AsyncMock()
+    js.key_value = mocker.AsyncMock()
     return js
 
 @pytest.fixture
@@ -154,10 +156,18 @@ def make_msg(mocker: MockerFixture):
         return msg
     return _make_msg
 
+@pytest.fixture
+def mock_kv(mocker: MockerFixture):
+    """Fake KeyValue store handle."""
+    kv = mocker.MagicMock()
+    kv.put = mocker.AsyncMock()
+    kv.get = mocker.AsyncMock()
+    return kv
 
-# ============================================================================= #
-# Construction & the _ensure_connected guard                                    #
-# ============================================================================= #
+
+# ================================================================= #
+# Construction & the _ensure_connected guard                        #
+# ================================================================= #
 
 class TestInit:
     async def test_init_starts_disconnected(self, client, settings):
@@ -187,9 +197,9 @@ class TestEnsureConnectionGuard:
             await connected_client.publish(SUBJECT, agent_message)
         mock_js.publish.assert_not_awaited()
 
-# ============================================================================== #
-# connect() / close()                                                            #
-# ============================================================================== #
+# ================================================================= #
+# connect() / close()                                               #
+# ================================================================= #
 
 class TestConnect:
     async def test_connect_success_stores_state(self, client, mock_nc, mock_js, mocker: MockerFixture):
@@ -254,9 +264,9 @@ class TestClose:
 
         mock_nc.drain.assert_not_awaited()
 
-# ============================================================================== #
-# publish()                                                                      #
-# ============================================================================== #
+# ================================================================ #
+# publish()                                                        #
+# ================================================================ #
 
 class TestPublish:
     async def test_publish_sends_serialized_payload(self, connected_client, mock_js, agent_message):
@@ -359,9 +369,9 @@ class TestSubscribe:
         assert config.deliver_policy == DeliverPolicy.ALL
         assert config.opt_start_time is None
 
-# ================================================================================ #
-# The _on_message closure - ack / nak / term policy                                #
-# ================================================================================ #
+# =============================================================== #
+# The _on_message closure - ack / nak / term policy               #
+# =============================================================== #
 
 class TestOnMessage:
     async def test_valid_message_calls_handler_and_acks(
@@ -453,7 +463,7 @@ class TestOnMessage:
             make_msg,
     ):
         handler = mocker.AsyncMock(side_effect=ValueError("boom"))
-        mock_bind = mocker.patch("structlog.contextvars.bind_contextvars")
+        mock_bind = mocker.patch("sre_shared.messaging.nats_client.bind_context")
         mock_unbind = mocker.patch("structlog.contextvars.unbind_contextvars")
 
         await connected_client.subscribe(SUBJECT, handler)
@@ -483,7 +493,7 @@ class TestOnMessage:
             payload={"status": "healthy"},
         )
         handler = mocker.AsyncMock()
-        mock_bind = mocker.patch("structlog.contextvars.bind_contextvars")
+        mock_bind = mocker.patch("sre_shared.messaging.nats_client.bind_context")
         mock_unbind = mocker.patch("structlog.contextvars.unbind_contextvars")
 
         await connected_client.subscribe(SUBJECT, handler)
@@ -495,6 +505,73 @@ class TestOnMessage:
         # note: incident_id key must be ABSENT from the call, not present-as-None
         mock_unbind.assert_called_once_with("correlation_id", "incident_id")
         msg.ack.assert_awaited_once()
+
+# ================================================================= #
+# Key-Value Store (Heartbeats / Liveness)                           #
+# ================================================================= #
+
+class TestKeyValueStore:
+    async def test_ensure_kv_bucket_creates_and_caches(
+        self, connected_client, mock_js, mock_kv, mocker: MockerFixture
+    ):
+        mock_js.create_key_value = mocker.AsyncMock(return_value=mock_kv)
+        
+        kv = await connected_client.ensure_kv_bucket("agent_heartbeats", ttl_seconds=60.0)
+        
+        assert kv is mock_kv
+        mock_js.create_key_value.assert_awaited_once()
+        config = mock_js.create_key_value.call_args.args[0]
+        assert config.bucket == "agent_heartbeats"
+        assert config.ttl == 60.0
+        assert "agent_heartbeats" in connected_client._kv_buckets
+
+    async def test_ensure_kv_bucket_returns_cached_handle(
+        self, connected_client, mock_js, mock_kv
+    ):
+        # Pre-populate the cache
+        connected_client._kv_buckets["agent_heartbeats"] = mock_kv
+        
+        kv = await connected_client.ensure_kv_bucket("agent_heartbeats", ttl_seconds=60.0)
+        
+        assert kv is mock_kv
+        mock_js.create_key_value.assert_not_awaited()
+
+    async def test_kv_put_calls_put_on_handle(
+        self, connected_client, mock_js, mock_kv, mocker: MockerFixture
+    ):
+        mock_js.key_value = mocker.AsyncMock(return_value=mock_kv)
+        
+        await connected_client.kv_put("agent_heartbeats", "diagnoser-1", b'{"status": "ok"}')
+        
+        mock_js.key_value.assert_awaited_once_with("agent_heartbeats")
+        mock_kv.put.assert_awaited_once_with("diagnoser-1", b'{"status": "ok"}')
+
+    async def test_kv_get_returns_value(
+        self, connected_client, mock_js, mock_kv, mocker: MockerFixture
+    ):
+        mock_js.key_value = mocker.AsyncMock(return_value=mock_kv)
+        mock_entry = mocker.MagicMock()
+        mock_entry.value = b'{"status": "ok"}'
+        mock_kv.get = mocker.AsyncMock(return_value=mock_entry)
+        
+        val = await connected_client.kv_get("agent_heartbeats", "diagnoser-1")
+        
+        assert val == b'{"status": "ok"}'
+
+    async def test_kv_get_returns_none_on_missing_or_deleted(
+        self, connected_client, mock_js, mock_kv, mocker: MockerFixture
+    ):
+        from nats.js.errors import KeyNotFoundError, KeyDeletedError
+        
+        mock_js.key_value = mocker.AsyncMock(return_value=mock_kv)
+        
+        # Test KeyNotFoundError
+        mock_kv.get = mocker.AsyncMock(side_effect=KeyNotFoundError)
+        assert await connected_client.kv_get("agent_heartbeats", "missing") is None
+        
+        # Test KeyDeletedError
+        mock_kv.get = mocker.AsyncMock(side_effect=KeyDeletedError)
+        assert await connected_client.kv_get("agent_heartbeats", "deleted") is None
 
 # ========================================================================================== #
 # request() - request-reply                                                                  #
@@ -558,9 +635,9 @@ class TestRequest:
         with pytest.raises(OSError, match="socket died"):
             await connected_client.request(SUBJECT, agent_message, timeout=1.0)
 
-# ======================================================================================================= #
-# replay_from()                                                                                           #
-# ======================================================================================================= #
+# ================================================================================#
+# replay_from()                                                                   #
+# =============================================================================== #
 
 class TestReplayFrom:
     async def test_replay_from_delegates_to_subscribe(

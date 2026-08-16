@@ -5,9 +5,11 @@ import math
 import json
 import structlog
 
-from sre_shared.logging.logger import get_logger
+from sre_shared.logging.logger import get_logger, bind_context
 from sre_shared.messaging.schema import AgentMessage
-from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
+from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy, KeyValueConfig
+from nats.js.kv import KeyValue
+from nats.js.errors import KeyNotFoundError, KeyDeletedError
 from nats.aio.client import Client as NatsConnection
 from nats.aio.msg import Msg
 from nats.js import JetStreamContext
@@ -46,6 +48,12 @@ class NatsClient:
         # Subscribe (durable consumer)
         await client.subscribe("agents.observer.anomalies", handler, durable_name="agents-observer-anomalies")
 
+        # KV (e.g. agent heartbeats) — bucket must exist before put/get.
+        # Bucket creation lives in scripts/init_nats.py, not here — same
+        # centralized-creation pattern as STREAM_CONFIGS.
+        await client.kv_put("agent_heartbeats", "diagnoser-1", b'{"status": "healthy"}')
+        value = await client.kv_get("agent_heartbeats", "diagnoser-1")  # None if expired/missing
+
         await client.close()
     """
 
@@ -54,6 +62,7 @@ class NatsClient:
 
         self._nc: NatsConnection | None = None
         self._js: JetStreamContext | None = None
+        self._kv_buckets: dict[str, KeyValue] = {}
 
         self._closing = False
     
@@ -211,11 +220,12 @@ class NatsClient:
 
                 await msg.term()
                 return
-            
-            bind_kwargs = {"correlation_id": str(agent_message.correlation_id)}
+
+            ctx_kwargs = {"correlation_id": str(agent_message.correlation_id)}
             if agent_message.incident_id is not None:
-                bind_kwargs["incident_id"] = str(agent_message.incident_id)
-            structlog.contextvars.bind_contextvars(**bind_kwargs)
+                ctx_kwargs["incident_id"] = str(agent_message.incident_id)
+
+            bind_context(**ctx_kwargs)
                         
             try:
                 await handler(agent_message)
@@ -254,6 +264,86 @@ class NatsClient:
         )
 
         return subcription
+
+    # ============================================================== #
+    # Key-Value Store (agent heartbeats / liveness)                  #
+    # ============================================================== #
+    
+
+    async def ensure_kv_bucket(
+            self,
+            bucket: str,
+            *,
+            ttl_seconds: float,
+    ) -> KeyValue:
+        """
+        Get or create a JetStream KV bucket with the given TTL.
+ 
+        Idempotent — safe to call on every connect(). Caches the KeyValue
+        handle per bucket name so repeated calls don't re-hit JetStream.
+
+        Caches the KeyValue handle in-process so repeated calls (or calls
+        from multiple methods) don't re-hit JetStream every time.
+        """
+
+        self._ensure_connected()
+
+        if bucket in self._kv_buckets:
+            return self._kv_buckets[bucket]
+
+        config = KeyValueConfig(bucket=bucket, ttl=ttl_seconds)
+        kv = await self._js.create_key_value(config) # type: ignore[union-attr]
+        self._kv_buckets[bucket] = kv
+
+        logger.info("kv_bucket_ready", bucket=bucket, ttl=ttl_seconds)
+        return kv
+
+    async def kv_put(self, bucket: str, key: str, value: bytes) -> None:
+        """
+        Write/refresh a key in the given KV bucket. Each put resets that
+        key's TTL clock.
+
+        Requires the bucket to already exist (created via init_nats.py at
+        cluster startup, not lazily here)
+        """
+
+        self._ensure_connected()
+
+        kv = await self._get_kv_handle(bucket)
+        await kv.put(key, value)
+
+    async def kv_get(self, bucket: str, key: str) -> bytes | None:
+        """
+        Read a key from the given KV bucket.
+ 
+        Returns None if the key doesn't exist, has expired (TTL elapsed),
+        or was explicitly deleted (KeyDeletedError).
+        """
+
+        self._ensure_connected()
+
+        kv = await self._get_kv_handle(bucket)
+
+        try:
+            entry = await kv.get(key)
+            return entry.value
+        except (KeyDeletedError, KeyNotFoundError):
+            return None
+
+    async def _get_kv_handle(self, bucket: str) -> KeyValue:
+        """
+        Return the cached KeyValue handle for a bucket, attaching to an
+        already-existing bucket on first use if not yet cached in this
+        process.
+        """
+
+        if bucket in self._kv_buckets:
+            return self._kv_buckets[bucket]
+
+        kv = await self._js.key_value(bucket) # type: ignore[union-attr]
+        self._kv_buckets[bucket] = kv
+        return kv
+
     
     # ============================================================== #
     # Request-Reply                                                  #

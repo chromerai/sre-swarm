@@ -5,10 +5,11 @@ Run via: make init ( after make dev, before starting any agent)
 
 import asyncio
 import nats
-from nats.js.errors import NotFoundError
+from nats.js.errors import NotFoundError, BucketNotFoundError
+from nats.js.api import KeyValueConfig
 from nats.js import JetStreamContext
 
-from sre_shared.messaging.streams import STREAM_CONFIGS
+from sre_shared.messaging.streams import STREAM_CONFIGS, AGENT_HEARTBEAT_BUCKET
 from sre_shared.config.settings import Settings
 from sre_shared.logging.logger import configure_logging, get_logger
 
@@ -38,7 +39,7 @@ async def init_streams(js: JetStreamContext) -> None:
 
             try:
                 await js.update_stream(stream_config)
-                print(f"  ✓ Updated stream: {name} ({len(subjects)} subjects)")
+                print(f"  ✅ Updated stream: {name} ({len(subjects)} subjects)")
 
                 logger.info("stream_updated", name=name, subjects=subjects)
 
@@ -56,7 +57,7 @@ async def init_streams(js: JetStreamContext) -> None:
 
             try:
                 await js.add_stream(config=stream_config)
-                print(f"  ✓ Created stream: {name} ({len(subjects)} subjects)")
+                print(f"  ✅ Created stream: {name} ({len(subjects)} subjects)")
 
                 logger.info("stream_created", name=name, subjects=subjects)
             
@@ -68,6 +69,38 @@ async def init_streams(js: JetStreamContext) -> None:
                     error_type=type(exc).__name__,
                 )
                 raise
+
+async def init_kv_buckets(js: JetStreamContext, settings: Settings) -> None:
+    """
+    Create the agent heartbeat KV bucket if it doesn't already exist.
+    """
+
+    bucket = AGENT_HEARTBEAT_BUCKET
+    ttl = settings.agent_heartbeat_timeout_seconds
+
+    try:
+        await js.key_value(bucket=bucket)
+        logger.info("kv_bucket_exists", bucket=bucket)
+        print(f" ✅ KV bucket exists: {bucket}")
+    except BucketNotFoundError:
+        logger.info("kv_bucket_not_found", bucket=bucket)
+
+        try:
+            config = KeyValueConfig(bucket=bucket, ttl=ttl)
+            await js.create_key_value(config)
+            print(f" ✅ Createed KV Bucket: {bucket} (ttl={ttl}s)")
+
+            logger.info("kv_bucket_created", bucket=bucket, ttl_seconds=ttl)
+
+        except Exception as exc:
+            logger.error(
+                "kv_bucket_create_failed",
+                bucket=bucket,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
+
 
 async def main() -> None:
     settings = Settings()
@@ -87,6 +120,9 @@ async def main() -> None:
     try:
         await init_streams(js)
         logger.info("stream_init_complete", total_streams=len(STREAM_CONFIGS))
+
+        await init_kv_buckets(js, settings)
+        logger.info("kv_init_complete")
     finally:
         await nc.close()
         logger.info("nats_closed")
