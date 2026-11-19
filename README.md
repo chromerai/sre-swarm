@@ -40,13 +40,24 @@ No agents run yet.**
 
 ## Project direction
 
-The intended agent flow is:
+The intended agent flow is hub-and-spoke through the Orchestrator:
 
 ```
-Observer -> Diagnoser -> Remediator -> Safety -> Orchestrator
-                                                       |
-                                                    Learner
+Observer ──INCIDENT_DETECTED──▶ Orchestrator
+                                  ├─ DIAGNOSIS_REQUESTED ──▶ Diagnoser
+                                  │      ◀─ DIAGNOSIS_COMPLETE
+                                  ├─ REMEDIATION_REQUESTED ──▶ Remediator (plan + verify)
+                                  │      ◀─ REMEDIATION_READY / VERIFICATION_PASSED
+                                  ├─ SAFETY_REVIEW_REQUESTED ──▶ Safety
+                                  │      ◀─ SAFETY_REVIEW_PASSED
+                                  ├─ EXECUTION_REQUESTED ──▶ Remediator (execute)
+                                  │      ◀─ EXECUTION_COMPLETE
+                                  └─ resolved ──INCIDENT_RESOLVED──▶ Learner
 ```
+
+Agents do not hand off directly to one another. The Orchestrator dispatches
+each command and receives every result. Diagnoser also queries Learner during
+diagnosis, and Learner consumes resolved incidents asynchronously.
 
 Agents are intended to communicate over NATS, with incident state stored in
 Postgres. The target design enforces verify-before-execute: an incident cannot
