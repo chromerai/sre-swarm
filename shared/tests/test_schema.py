@@ -51,7 +51,7 @@ def make_heartbeat(**overrides) -> AgentMessage:
     that legitimately omits incident_id.
     """
     defaults: dict[str, Any] = {
-        "msg_type": HEARTBEAT_TYPE,
+        "type": HEARTBEAT_TYPE,
         "source_agent": "observer",
     }
     defaults.update(overrides)

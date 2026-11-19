@@ -62,7 +62,7 @@ from sre_shared.messaging.subjects import AGENT_HEARTBEAT
 
 INPUT_SUBJECT = "sre.test.diagnosis"
 DURABLE_NAME = "test-agent-durable"
-
+TEST_INCIDENT_ID = uuid4()
 # ================================================================== #
 # TestAgent - BaseAgent is abstract, tests need something            #
 # instantiable                                                       #
@@ -111,7 +111,7 @@ def agent(settings, mock_nats_client, mock_logger) -> _TestAgent:
         settings=settings,
         nats_client=mock_nats_client,
         logger=mock_logger,
-        input_suibject=INPUT_SUBJECT,
+        input_subject=INPUT_SUBJECT,
         durable_name=DURABLE_NAME,
         agent_instance_id="test-agent-1",
     )
@@ -297,13 +297,14 @@ class TestStop:
 
 class TestPublish:
     async def test_publish_builds_agent_message_and_delegates(self, agent, mock_nats_client):
-        await agent.publsh(
+        await agent.publish(
             "sre.diagnosis.complete",
             "diagnosis_complete",
             {"diagnosis": "OOMKilled"},
+            incident_id = TEST_INCIDENT_ID,
         )
 
-        mock_nats_client.publsh.assert_awaited_once()
+        mock_nats_client.publish.assert_awaited_once()
         subject_arg = mock_nats_client.publish.call_args.args[0]
         message_arg = mock_nats_client.publish.call_args.args[1]
 
@@ -355,7 +356,11 @@ class TestPublish:
         mock_nats_client.publish.side_effect = OSError("nats down")
  
         with pytest.raises(OSError, match="nats down"):
-            await agent.publish("sre.diagnosis.complete", "diagnosis_complete", {})
+            await agent.publish(
+                "sre.diagnosis.complete", 
+                "diagnosis_complete", 
+                {}, 
+                incident_id = TEST_INCIDENT_ID)
  
         mock_logger.error.assert_called_once()
         assert mock_logger.error.call_args.args[0] == "publish_failed"

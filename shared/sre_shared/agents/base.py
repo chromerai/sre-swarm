@@ -145,9 +145,9 @@ class BaseAgent(abc.ABC):
  
     async def publish(
             self, 
-            subject: str, 
-            payload: dict[str, Any],
+            subject: str,
             message_type: str,
+            payload: dict[str, Any],
             *,
             incident_id: UUID | None = None,
             in_reply_to: AgentMessage | None = None,
