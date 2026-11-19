@@ -10,3 +10,4 @@ node_modules/
 chroma_db/
 *.egg-info/
 .vscode
+public/*.md
