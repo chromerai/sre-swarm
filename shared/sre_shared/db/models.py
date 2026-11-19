@@ -17,9 +17,6 @@ Tables:
                           agent restarts.
   - runbook_stats:        Aggregate success/failure/MTTR counters per
                           runbook, upserted after every resolved incident.
-                          
-  - agent_heartbeats:     Latest heartbeat per running agent instance — used
-                          for dead-agent detection and liveness monitoring.
 
 All timestamps are timezone-aware, stored in UTC.
 """
@@ -40,6 +37,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    CheckConstraint,
     Index,
 )
 
@@ -86,9 +84,23 @@ class Incident(Base):
         default=utcnow,
     )
 
+    updated_at: Mapped[datetime] = mapped_column(
+            DateTime(timezone=True), 
+            nullable=False, 
+            default=utcnow,
+            onupdate=utcnow
+        )
+
     resolved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+        comment="Time at which incident is resolved!"
+    )
+
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="The Incident closed time after postmortem and learning."
     )
 
     raw_event: Mapped[Optional[dict]] = mapped_column(
@@ -100,6 +112,16 @@ class Incident(Base):
     diagnosis: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
+    )
+
+    diagnosis_confidence: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="0-100 confidence from RCA engine", 
+    )
+    root_cause_category: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    root_cause_service: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
     )
 
     proposed_action: Mapped[Optional[str]] = mapped_column(
@@ -139,6 +161,13 @@ class Incident(Base):
         JSONB,
         nullable=True
     )
+
+    __table_args__ = (
+    CheckConstraint(
+        "diagnosis_confidence BETWEEN 0 AND 100",
+        name="ck_incident_diagnosis_confidence_range",
+    ),
+)
 
 class TimelineEvent(Base):
     """
