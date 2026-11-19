@@ -9,10 +9,22 @@ The system is organized as six agents that communicate over NATS JetStream,
 with PostgreSQL as the source of truth for incident state.
 
 ```
-Observer -> Diagnoser -> Remediator -> Safety -> Orchestrator
-                                                       |
-                                                    Learner
+Observer ──INCIDENT_DETECTED──▶ Orchestrator
+                                  ├─ DIAGNOSIS_REQUESTED ──▶ Diagnoser
+                                  │      ◀─ DIAGNOSIS_COMPLETE
+                                  ├─ REMEDIATION_REQUESTED ──▶ Remediator (plan + verify)
+                                  │      ◀─ REMEDIATION_READY / VERIFICATION_PASSED
+                                  ├─ SAFETY_REVIEW_REQUESTED ──▶ Safety
+                                  │      ◀─ SAFETY_REVIEW_PASSED
+                                  ├─ EXECUTION_REQUESTED ──▶ Remediator (execute)
+                                  │      ◀─ EXECUTION_COMPLETE
+                                  └─ resolved ──INCIDENT_RESOLVED──▶ Learner
 ```
+
+The Orchestrator is the hub: it dispatches each command and receives every
+result. Agents never hand off to each other directly. Diagnoser also queries
+Learner during diagnosis via a `LEARNING_QUERY` request/reply, and Learner
+consumes resolved incidents asynchronously.
 
 ## Current status
 
