@@ -165,7 +165,7 @@ class Incident(Base):
     __table_args__ = (
     CheckConstraint(
         "diagnosis_confidence BETWEEN 0 AND 100",
-        name="ck_incident_diagnosis_confidence_range",
+        name="ck_incidents_diagnosis_confidence_range",
     ),
 )
 
