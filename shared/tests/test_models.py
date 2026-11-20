@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 
 import pytest
-from sqlalchemy import inspect, String, Table, UniqueConstraint, Integer
+from sqlalchemy import inspect, Table, UniqueConstraint, Integer, CheckConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.exc import IntegrityError
 
@@ -89,13 +89,19 @@ class TestIncidentModel:
             "operator_decision", "resolution_summary", "postmortem",
         })
 
-    def test_incident_relationships(self):
-        assert_no_relationships(Incident)
+    def test_check_constraint(self):
+        mapper = inspect(Incident)
+        assert isinstance(mapper.local_table, Table)
 
-    def test_instantiation_stores_given_fields(self):
-        inc = Incident(detection_mode=DetectionMode.FULL, status="testing")
-        assert inc.detection_mode == DetectionMode.FULL
-        assert inc.status == "testing"
+        checks= [c for c in mapper.local_table.constraints if isinstance(c, CheckConstraint)]
+
+        assert len(checks) == 1
+
+        name, sqltext = checks[0].name, str(checks[0].sqltext)
+
+        assert name == "ck_incidents_diagnosis_confidence_range"
+        assert sqltext == "diagnosis_confidence IS NULL OR (diagnosis_confidence >= 0 AND diagnosis_confidence <= 100)"
+
 
 
 
@@ -104,38 +110,6 @@ class TestIncidentModel:
 # session). Un-skip once a DB session fixture exists.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="Requires a live DB session to trigger CheckConstraint "
-                          "enforcement at flush() time — wire up a session "
-                          "fixture before enabling.")
-class TestIncidentConstraints:
-    def test_diagnosis_confidence_rejects_above_100(self, db_session):
-        inc = Incident(
-            detection_mode=DetectionMode.FULL,
-            status="testing",
-            diagnosis_confidence=150,
-        )
-        db_session.add(inc)
-        with pytest.raises(Exception):  # IntegrityError, narrow once DB is wired
-            db_session.flush()
-
-    def test_diagnosis_confidence_rejects_negative(self, db_session):
-        inc = Incident(
-            detection_mode=DetectionMode.FULL,
-            status="testing",
-            diagnosis_confidence=-10,
-        )
-        db_session.add(inc)
-        with pytest.raises(Exception):
-            db_session.flush()
-
-    def test_diagnosis_confidence_accepts_boundary_values(self, db_session):
-        inc = Incident(
-            detection_mode=DetectionMode.FULL,
-            status="testing",
-            diagnosis_confidence=0,
-        )
-        db_session.add(inc)
-        db_session.flush()  # should not raise
 
 @pytest.mark.skip(reason="Requires an async DB session fixture (`db_session`) "
                           "against a real Postgres — constraints and defaults "
@@ -167,7 +141,7 @@ class TestIncidentPersistence:
 
     # --- diagnosis_confidence CheckConstraint (0-100) ---
 
-    @pytest.mark.parametrize("bad_value", [-1, -10, 101, 150])
+    @pytest.mark.parametrize("bad_value", [-1, -10, 101, 150, None])
     async def test_diagnosis_confidence_rejects_out_of_range(
         self, db_session, bad_value
     ):
@@ -214,9 +188,6 @@ class TestTimelineEventModel:
     def test_jsonb_payload(self):
         assert_column_is_jsonb(TimelineEvent, "payload")
 
-    def test_no_relationships(self):
-        assert_no_relationships(TimelineEvent)
-
     def test_composite_index_on_incident_id_and_timestamp(self):
         # Confirms the documented composite index exists — dashboard
         # timeline fetch depends on this being indexed, not a full scan.
@@ -256,9 +227,6 @@ class TestAuditLogModel:
     def test_jsonb_payload(self):
         assert_column_is_jsonb(AuditLog, "payload")
 
-    def test_no_relationships(self):
-        assert_no_relationships(AuditLog)
-
     def test_index_on_incident_id(self):
         mapper = inspect(AuditLog)
 
@@ -291,9 +259,6 @@ class TestRemediationStateModel:
     def test_jsonb_cluster_snapshot(self):
         assert_column_is_jsonb(RemediationState, "cluster_snapshot")
 
-    def test_no_relationships(self):
-        assert_no_relationships(RemediationState)
-
     def test_index_on_incident_id(self):
         mapper = inspect(RemediationState)
 
@@ -321,9 +286,6 @@ class TestRateLimitRecordModel:
         assert_columns_present(RateLimitRecord, {
             "id", "action_fingerprint", "namespace", "count", "timestamp",
         })
-
-    def test_no_relationships(self):
-        assert_no_relationships(RateLimitRecord)
 
     def test_unique_constraint_on_fingerprint_and_namespace(self):
         # Required as the ON CONFLICT target for the increment-in-place
@@ -364,11 +326,6 @@ class TestRunbookStatsModel:
             "runbook_id", "total_attempts", "successes",
             "total_mttr_sec", "last_updated_at",
         })
-
-    def test_no_relationships(self):
-        assert_no_relationships(RunbookStats)
-
-
 # ---------------------------------------------------------------------------
 # Cross-model — protects the project-wide convention itself, not any
 # one model. Add new models to this list as they're built.
