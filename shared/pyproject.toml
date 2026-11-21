@@ -6,9 +6,11 @@ build-backend = "uv_build"
 name = "sre_shared"
 version = "0.1.0"
 description = "This is the version to be shared amongst all of the code"
+license = "MIT"
+license-files = ["LICENSE.md"]
 readme = "README.md"
 authors = [
-    { name = "chromerai", email = "kaustubhmishra983@gmail.com" }
+    { name = "Kaustubh Mishra", email = "kaustubhmishra983@gmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
